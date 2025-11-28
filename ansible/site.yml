@@ -58,14 +58,30 @@
         creates: /usr/local/bin/minikube
 
     # ============================================
-    # 5. Install Terraform
+    # 5. Install Terraform & initialize
     # ============================================
     - name: Install Terraform
       shell: |
         curl -LO https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip
-        unzip terraform_1.6.0_linux_amd64.zip -d /usr/local/bin/
+        unzip terraform_1.14.0_linux_amd64.zip -d /usr/local/bin/
       args:
         creates: /usr/local/bin/terraform
+    - name: Initialize Terraform
+      command: terraform init
+      args:
+        chdir: /opt/notesapp/terraform/k8s
+      register: tf_init
+      ignore_errors: true
+
+    - name: Apply Terraform
+      command: terraform apply -auto-approve
+      args:
+        chdir: /opt/notesapp/k8s
+      register: tf_apply
+
+    - name: Show Terraform apply result
+      debug:
+        msg: "{{ tf_apply.stdout_lines }}"
 
     # ============================================
     # 6. Start Minikube cluster
