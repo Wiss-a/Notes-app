@@ -23,7 +23,8 @@ resource "kubernetes_deployment" "api" {
       spec {
         container {
           name  = "notes-api"
-          image = "notes-api:1.0"
+          image = "notes-api:latest"
+          image_pull_policy = "Never"
 
           port {
             container_port = 5000

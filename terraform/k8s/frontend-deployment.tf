@@ -23,7 +23,9 @@ resource "kubernetes_deployment" "frontend" {
       spec {
         container {
           name  = "notes-frontend"
-          image = "notes-frontend:1.0"
+          image = "notes-frontend:latest"
+          image_pull_policy = "Never"
+
 
           port {
             container_port = 80
