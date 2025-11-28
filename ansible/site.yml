@@ -1,0 +1,170 @@
+---
+- name: Deploy NotesApp on Kubernetes
+  hosts: servers
+  gather_facts: true
+  become: true
+
+  tasks:
+    # ============================================
+    # 1. Vérifications préliminaires
+    # ============================================
+    - name: Vérifier que Docker est installé
+      command: docker --version
+      register: docker_check
+      changed_when: false
+
+    - name: Vérifier que kubectl est installé
+      command: kubectl version --client
+      register: kubectl_check
+      changed_when: false
+
+    - name: Vérifier que Minikube est installé
+      command: minikube version
+      register: minikube_check
+      changed_when: false
+
+    - name: Afficher les versions
+      debug:
+        msg:
+          - "Docker: {{ docker_check.stdout }}"
+          - "Kubectl: {{ kubectl_check.stdout }}"
+          - "Minikube: {{ minikube_check.stdout }}"
+
+    # ============================================
+    # 2. Démarrage du cluster Minikube
+    # ============================================
+    - name: Vérifier si Minikube est déjà en cours
+      command: minikube status
+      register: minikube_status
+      ignore_errors: true
+      changed_when: false
+
+    - name: Démarrer Minikube
+      command: minikube start --driver=docker --force
+      when: minikube_status.rc != 0
+      become_user: root
+
+    - name: Attendre que Minikube soit prêt
+      command: kubectl get nodes
+      register: nodes_check
+      until: nodes_check.rc == 0
+      retries: 10
+      delay: 10
+      changed_when: false
+
+    # ============================================
+    # 3. Configuration des addons
+    # ============================================
+    - name: Activer Ingress
+      command: minikube addons enable ingress
+
+    - name: Activer MetalLB
+      command: minikube addons enable metallb
+
+    - name: Obtenir l'IP de Minikube
+      command: minikube ip
+      register: minikube_ip
+      changed_when: false
+
+    - name: Configurer MetalLB
+      shell: |
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          namespace: metallb-system
+          name: config
+        data:
+          config: |
+            address-pools:
+            - name: default
+              protocol: layer2
+              addresses:
+              - {{ minikube_ip.stdout }}/28
+        EOF
+
+    # ============================================
+    # 4. Build des images Docker
+    # ============================================
+    - name: Build de l'image API
+      command: minikube image build -t notes-api:1.0 /opt/notesapp/app/api
+      args:
+        chdir: /opt/notesapp
+
+    - name: Build de l'image Frontend
+      command: minikube image build -t notes-frontend:1.0 /opt/notesapp/app/frontend
+      args:
+        chdir: /opt/notesapp
+
+    # ============================================
+    # 5. Déploiement avec Terraform
+    # ============================================
+    - name: Initialiser Terraform
+      command: terraform init
+      args:
+        chdir: /opt/notesapp/terraform
+
+    - name: Appliquer Terraform
+      command: terraform apply -auto-approve -var="vm_ip={{ minikube_ip.stdout }}"
+      args:
+        chdir: /opt/notesapp/terraform
+
+    # ============================================
+    # 6. Attendre que les pods soient prêts
+    # ============================================
+    - name: Attendre que tous les pods soient prêts
+      command: kubectl wait --for=condition=ready pod --all -n notesapp --timeout=300s
+      register: pods_ready
+      until: pods_ready.rc == 0
+      retries: 5
+      delay: 30
+
+    # ============================================
+    # 7. Vérifications finales
+    # ============================================
+    - name: Obtenir les ressources déployées
+      command: kubectl get all -n notesapp
+      register: k8s_resources
+      changed_when: false
+
+    - name: Afficher les ressources
+      debug:
+        var: k8s_resources.stdout_lines
+
+    - name: Obtenir l'Ingress
+      command: kubectl get ingress -n notesapp
+      register: ingress_info
+      changed_when: false
+
+    - name: Afficher l'Ingress
+      debug:
+        var: ingress_info.stdout_lines
+
+    # ============================================
+    # 8. Affichage de l'URL d'accès
+    # ============================================
+    - name: Afficher l'URL d'accès finale
+      debug:
+        msg: |
+          
+          ✅ ================================
+          ✅ DÉPLOIEMENT RÉUSSI !
+          ✅ ================================
+          
+          🌐 URL d'accès: http://notes.{{ minikube_ip.stdout }}.nip.io
+          
+          📋 Commandes utiles:
+          
+          # Voir tous les pods
+          kubectl get pods -n notesapp
+          
+          # Voir les logs de l'API
+          kubectl logs -n notesapp -l app=notes-api
+          
+          # Voir les logs du Frontend
+          kubectl logs -n notesapp -l app=notes-frontend
+          
+          # Accéder au Dashboard Minikube
+          minikube dashboard
+          
+          ✅ ================================

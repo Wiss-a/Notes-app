@@ -1,0 +1,112 @@
+services:
+  # ============================================
+  # NIVEAU 1: Infrastructure de Contrôle
+  # ============================================
+  
+  ansible-control:
+    build:
+      context: .
+      dockerfile: ansible.dockerfile
+    container_name: ansible-control
+    hostname: ansible-control
+    volumes:
+      - ./ansible:/ansible
+      - ./terraform:/terraform
+      - ./app:/app
+    networks:
+      - ansible-net
+    depends_on:
+      - server-target
+    stdin_open: true
+    tty: true
+    command: tail -f /dev/null
+
+  server-target:
+    build:
+      context: .
+      dockerfile: server.dockerfile
+    container_name: server-target
+    hostname: server-target
+    privileged: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./app:/opt/notesapp/app
+      - ./terraform:/opt/notesapp/terraform
+      - server-data:/data
+    networks:
+      ansible-net:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "2222:22"
+      - "8080:80"
+    depends_on:
+      - notes-db
+
+  # ============================================
+  # NIVEAU 2: Application NotesApp
+  # ============================================
+
+  notes-db:
+    image: postgres:15-alpine
+    container_name: notes-db
+    hostname: notes-db
+    environment:
+      POSTGRES_USER: notes
+      POSTGRES_PASSWORD: notespass
+      POSTGRES_DB: notesdb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ansible-net
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  notes-api:
+    build:
+      context: ./app/api
+      dockerfile: Dockerfile
+    container_name: notes-api
+    hostname: notes-api
+    environment:
+      DATABASE_URL: postgresql://notes:notespass@notes-db:5432/notesdb
+    depends_on:
+      notes-db:
+        condition: service_healthy
+    networks:
+      - ansible-net
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  notes-frontend:
+    build:
+      context: ./app/frontend
+      dockerfile: Dockerfile
+    container_name: notes-frontend
+    hostname: notes-frontend
+    depends_on:
+      - notes-api
+    networks:
+      - ansible-net
+    ports:
+      - "8081:80"
+
+networks:
+  ansible-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  server-data:
+  postgres-data:
