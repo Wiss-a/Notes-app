@@ -2,7 +2,7 @@ variable "namespace" {
   description = "Kubernetes namespace for the NotesApp"
   default     = "notesapp"
 }
-resource "kubernetes_namespace" "notes" {
+resource "kubernetes_namespace" "notesapp" {
   metadata {
     name = var.namespace
   }
