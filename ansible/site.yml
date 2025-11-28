@@ -62,7 +62,7 @@
     # ============================================
     - name: Install Terraform
       shell: |
-        curl -LO https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip
+        curl -LO https://releases.hashicorp.com/terraform/1.14.0/terraform_1.14.0_linux_amd64.zip
         unzip terraform_1.14.0_linux_amd64.zip -d /usr/local/bin/
       args:
         creates: /usr/local/bin/terraform
@@ -72,12 +72,22 @@
         chdir: /home/wissal/Notes-app/terraform/k8s
       register: tf_init
       ignore_errors: true
-
-    - name: Apply Terraform
-      command: terraform apply -auto-approve
+    - name: Terraform plan
+      command: terraform plan -out=tfplan
       args:
         chdir: /home/wissal/Notes-app/terraform/k8s
+      register: tf_plan
+      ignore_errors: true
 
+    - name: Show Terraform plan result
+      debug:
+        msg: "{{ tf_plan.stdout_lines }}"
+
+
+    - name: Apply Terraform
+      command: terraform apply tfplan
+      args:
+        chdir: /home/wissal/Notes-app/terraform/k8s
       register: tf_apply
 
     - name: Show Terraform apply result
