@@ -1,7 +1,7 @@
 resource "kubernetes_ingress" "notes_ingress" {
   metadata {
     name      = "notes-ingress"
-    namespace = var.namespace
+    namespace = kubernetes_namespace.notesapp.metadata[0].name
   }
 
   spec {
