@@ -69,14 +69,15 @@
     - name: Initialize Terraform
       command: terraform init
       args:
-        chdir: /opt/notesapp/terraform/k8s
+        chdir: /home/wissal/Notes-app/terraform/k8s
       register: tf_init
       ignore_errors: true
 
     - name: Apply Terraform
       command: terraform apply -auto-approve
       args:
-        chdir: /opt/notesapp/k8s
+        chdir: /home/wissal/Notes-app/terraform/k8s
+
       register: tf_apply
 
     - name: Show Terraform apply result
@@ -151,17 +152,17 @@
     # ============================================
     - name: Build API Docker image
       shell: |
-        cd /opt/notesapp/app/api
+        cd /home/wissal/Notes-app/app/api
         docker build -t notes-api:1.0 .
       args:
-        chdir: /opt/notesapp/app/api
+        chdir: /home/wissal/Notes-app/app/api
 
     - name: Build Frontend Docker image
       shell: |
-        cd /opt/notesapp/app/frontend
+        cd /home/wissal/Notes-app/app/frontend
         docker build -t notes-frontend:1.0 .
       args:
-        chdir: /opt/notesapp/app/frontend
+        chdir: /home/wissal/Notes-app/app/frontend
 
     - name: Load images into Minikube
       shell: |
