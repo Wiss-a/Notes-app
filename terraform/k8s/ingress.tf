@@ -1,7 +1,10 @@
-resource "kubernetes_ingress" "notes_ingress" {
+resource "kubernetes_ingress_v1" "notes_ingress" {
   metadata {
     name      = "notes-ingress"
     namespace = kubernetes_namespace.notesapp.metadata[0].name
+    annotations = {
+      "kubernetes.io/ingress.class" = "nginx"
+    }
   }
 
   spec {
@@ -10,10 +13,16 @@ resource "kubernetes_ingress" "notes_ingress" {
 
       http {
         path {
-          path = "/"
+          path      = "/"
+          path_type = "Prefix"
+
           backend {
-            service_name = "notes-frontend"
-            service_port = 80
+            service {
+              name = "notes-frontend"
+              port {
+                number = 80
+              }
+            }
           }
         }
       }
