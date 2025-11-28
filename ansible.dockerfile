@@ -1,9 +1,8 @@
 FROM ubuntu:22.04
 
-# Éviter les prompts interactifs
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Installer Ansible et les dépendances
+# Installer Ansible et outils
 RUN apt-get update && apt-get install -y \
     ansible \
     sshpass \
@@ -14,24 +13,28 @@ RUN apt-get update && apt-get install -y \
     curl \
     vim \
     net-tools \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Installer les collections Ansible nécessaires
-RUN ansible-galaxy collection install kubernetes.core
-RUN ansible-galaxy collection install community.docker
+# Installer les modules Python pour Ansible
+RUN pip3 install --no-cache-dir \
+    kubernetes \
+    docker \
+    openshift \
+    pyyaml
 
-# Configuration SSH pour éviter la vérification des clés
+# Installer collections Ansible
+RUN ansible-galaxy collection install kubernetes.core && \
+    ansible-galaxy collection install community.docker && \
+    ansible-galaxy collection install community.general
+
+# Configuration SSH
 RUN mkdir -p /root/.ssh && \
     echo "Host *" > /root/.ssh/config && \
     echo "    StrictHostKeyChecking no" >> /root/.ssh/config && \
     echo "    UserKnownHostsFile=/dev/null" >> /root/.ssh/config && \
     chmod 600 /root/.ssh/config
 
-# Définir le répertoire de travail
 WORKDIR /ansible
 
-# Copier les fichiers Ansible (sera fait via volume en dev)
-# COPY ansible/ /ansible/
-
-# Garder le conteneur actif
 CMD ["tail", "-f", "/dev/null"]

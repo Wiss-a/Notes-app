@@ -8,163 +8,380 @@
     # ============================================
     # 1. Vérifications préliminaires
     # ============================================
-    - name: Vérifier que Docker est installé
-      command: docker --version
-      register: docker_check
-      changed_when: false
-
-    - name: Vérifier que kubectl est installé
-      command: kubectl version --client
-      register: kubectl_check
-      changed_when: false
-
-    - name: Vérifier que Minikube est installé
-      command: minikube version
-      register: minikube_check
-      changed_when: false
-
-    - name: Afficher les versions
-      debug:
-        msg:
-          - "Docker: {{ docker_check.stdout }}"
-          - "Kubectl: {{ kubectl_check.stdout }}"
-          - "Minikube: {{ minikube_check.stdout }}"
-
-    # ============================================
-    # 2. Démarrage du cluster Minikube
-    # ============================================
-    - name: Vérifier si Minikube est déjà en cours
-      command: minikube status
-      register: minikube_status
+    - name: Vérifier que Docker est démarré
+      service:
+        name: docker
+        state: started
       ignore_errors: true
-      changed_when: false
 
-    - name: Démarrer Minikube
-      command: minikube start --driver=docker --force
-      when: minikube_status.rc != 0
-      become_user: root
+    - name: Attendre que Docker soit prêt
+      wait_for:
+        path: /var/run/docker.sock
+        timeout: 60
 
-    - name: Attendre que Minikube soit prêt
+    - name: Vérifier les outils installés
+      debug:
+        msg: "Tous les outils sont installés: Docker, kubectl, Minikube, Terraform"
+
+    # ============================================
+    # 2. Nettoyer Minikube existant
+    # ============================================
+    - name: Arrêter Minikube existant
+      command: minikube delete
+      ignore_errors: true
+
+    # ============================================
+    # 3. Démarrer Minikube avec driver=none
+    # ============================================
+    - name: Démarrer Minikube (driver=none)
+      command: minikube start --driver=none --force
+      environment:
+        MINIKUBE_HOME: /root
+        CHANGE_MINIKUBE_NONE_USER: "true"
+      async: 600
+      poll: 0
+      register: minikube_start_job
+
+    - name: Attendre le démarrage de Minikube
+      async_status:
+        jid: "{{ minikube_start_job.ansible_job_id }}"
+      register: job_result
+      until: job_result.finished
+      retries: 60
+      delay: 10
+
+    - name: Vérifier que Minikube fonctionne
       command: kubectl get nodes
-      register: nodes_check
-      until: nodes_check.rc == 0
-      retries: 10
+      register: nodes
+      until: nodes.rc == 0
+      retries: 20
       delay: 10
       changed_when: false
 
+    - name: Afficher les nodes Kubernetes
+      debug:
+        msg: "{{ nodes.stdout_lines }}"
+
     # ============================================
-    # 3. Configuration des addons
+    # 4. Configurer les addons
     # ============================================
-    - name: Activer Ingress
+    - name: Activer addon Ingress
       command: minikube addons enable ingress
+      register: ingress_result
+      retries: 3
+      delay: 10
+      until: ingress_result.rc == 0
 
-    - name: Activer MetalLB
+    - name: Activer addon MetalLB
       command: minikube addons enable metallb
+      register: metallb_result
+      retries: 3
+      delay: 10
+      until: metallb_result.rc == 0
 
-    - name: Obtenir l'IP de Minikube
-      command: minikube ip
-      register: minikube_ip
+    # ============================================
+    # 5. Obtenir l'IP
+    # ============================================
+    - name: Obtenir l'IP du serveur
+      shell: hostname -I | awk '{print $1}'
+      register: server_ip
       changed_when: false
 
-    - name: Configurer MetalLB
-      shell: |
-        cat <<EOF | kubectl apply -f -
-        apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          namespace: metallb-system
-          name: config
-        data:
-          config: |
-            address-pools:
-            - name: default
-              protocol: layer2
-              addresses:
-              - {{ minikube_ip.stdout }}/28
-        EOF
+    - name: Afficher l'IP
+      debug:
+        msg: "IP du serveur: {{ server_ip.stdout }}"
 
     # ============================================
-    # 4. Build des images Docker
+    # 6. Créer le namespace
     # ============================================
-    - name: Build de l'image API
-      command: minikube image build -t notes-api:1.0 /opt/notesapp/app/api
-      args:
-        chdir: /opt/notesapp
-
-    - name: Build de l'image Frontend
-      command: minikube image build -t notes-frontend:1.0 /opt/notesapp/app/frontend
-      args:
-        chdir: /opt/notesapp
+    - name: Créer namespace notesapp
+      command: kubectl create namespace notesapp
+      register: ns_result
+      failed_when: 
+        - ns_result.rc != 0
+        - '"already exists" not in ns_result.stderr'
 
     # ============================================
-    # 5. Déploiement avec Terraform
+    # 7. Build des images Docker
     # ============================================
-    - name: Initialiser Terraform
-      command: terraform init
-      args:
-        chdir: /opt/notesapp/terraform
+    - name: Build image API
+      community.general.docker_image:
+        name: notes-api
+        tag: "1.0"
+        source: build
+        build:
+          path: /opt/notesapp/app/api
+        state: present
+      register: api_build
 
-    - name: Appliquer Terraform
-      command: terraform apply -auto-approve -var="vm_ip={{ minikube_ip.stdout }}"
-      args:
-        chdir: /opt/notesapp/terraform
+    - name: Build image Frontend
+      community.general.docker_image:
+        name: notes-frontend
+        tag: "1.0"
+        source: build
+        build:
+          path: /opt/notesapp/app/frontend
+        state: present
+      register: frontend_build
+
+    - name: Afficher résultat des builds
+      debug:
+        msg:
+          - "API image: {{ api_build.image.Id if api_build.image is defined else 'Built' }}"
+          - "Frontend image: {{ frontend_build.image.Id if frontend_build.image is defined else 'Built' }}"
 
     # ============================================
-    # 6. Attendre que les pods soient prêts
+    # 8. Déployer la base de données
+    # ============================================
+    - name: Déployer PostgreSQL avec Secret
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: db-secret
+          type: Opaque
+          stringData:
+            POSTGRES_USER: notes
+            POSTGRES_PASSWORD: notespass
+            POSTGRES_DB: notesdb
+
+    - name: Déployer PostgreSQL StatefulSet
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: notes-db
+          spec:
+            serviceName: notes-db
+            replicas: 1
+            selector:
+              matchLabels:
+                app: notes-db
+            template:
+              metadata:
+                labels:
+                  app: notes-db
+              spec:
+                containers:
+                - name: postgres
+                  image: postgres:15-alpine
+                  ports:
+                  - containerPort: 5432
+                  env:
+                  - name: POSTGRES_USER
+                    valueFrom:
+                      secretKeyRef:
+                        name: db-secret
+                        key: POSTGRES_USER
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: db-secret
+                        key: POSTGRES_PASSWORD
+                  - name: POSTGRES_DB
+                    valueFrom:
+                      secretKeyRef:
+                        name: db-secret
+                        key: POSTGRES_DB
+                  volumeMounts:
+                  - name: postgres-storage
+                    mountPath: /var/lib/postgresql/data
+            volumeClaimTemplates:
+            - metadata:
+                name: postgres-storage
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 2Gi
+
+    - name: Déployer PostgreSQL Service
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: notes-db
+          spec:
+            selector:
+              app: notes-db
+            ports:
+            - port: 5432
+              targetPort: 5432
+
+    # ============================================
+    # 9. Déployer l'API
+    # ============================================
+    - name: Déployer API Deployment
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: notes-api
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: notes-api
+            template:
+              metadata:
+                labels:
+                  app: notes-api
+              spec:
+                containers:
+                - name: api
+                  image: notes-api:1.0
+                  imagePullPolicy: Never
+                  ports:
+                  - containerPort: 5000
+                  env:
+                  - name: DATABASE_URL
+                    value: "postgresql://notes:notespass@notes-db:5432/notesdb"
+
+    - name: Déployer API Service
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: notes-api
+          spec:
+            selector:
+              app: notes-api
+            ports:
+            - port: 5000
+              targetPort: 5000
+
+    # ============================================
+    # 10. Déployer le Frontend
+    # ============================================
+    - name: Déployer Frontend Deployment
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: notes-frontend
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: notes-frontend
+            template:
+              metadata:
+                labels:
+                  app: notes-frontend
+              spec:
+                containers:
+                - name: frontend
+                  image: notes-frontend:1.0
+                  imagePullPolicy: Never
+                  ports:
+                  - containerPort: 80
+
+    - name: Déployer Frontend Service
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: notes-frontend
+          spec:
+            selector:
+              app: notes-frontend
+            ports:
+            - port: 80
+              targetPort: 80
+
+    # ============================================
+    # 11. Déployer l'Ingress
+    # ============================================
+    - name: Déployer Ingress
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: notesapp-ingress
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /
+          spec:
+            rules:
+            - host: "notes.{{ server_ip.stdout }}.nip.io"
+              http:
+                paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: notes-frontend
+                      port:
+                        number: 80
+
+    # ============================================
+    # 12. Attendre que tout soit prêt
     # ============================================
     - name: Attendre que tous les pods soient prêts
       command: kubectl wait --for=condition=ready pod --all -n notesapp --timeout=300s
       register: pods_ready
-      until: pods_ready.rc == 0
       retries: 5
       delay: 30
+      until: pods_ready.rc == 0
 
     # ============================================
-    # 7. Vérifications finales
+    # 13. Afficher les résultats
     # ============================================
-    - name: Obtenir les ressources déployées
-      command: kubectl get all -n notesapp
-      register: k8s_resources
+    - name: Obtenir tous les pods
+      command: kubectl get pods -n notesapp -o wide
+      register: pods
       changed_when: false
 
-    - name: Afficher les ressources
-      debug:
-        var: k8s_resources.stdout_lines
+    - name: Obtenir tous les services
+      command: kubectl get svc -n notesapp
+      register: services
+      changed_when: false
 
     - name: Obtenir l'Ingress
       command: kubectl get ingress -n notesapp
-      register: ingress_info
+      register: ingress
       changed_when: false
 
-    - name: Afficher l'Ingress
+    - name: Afficher le résumé du déploiement
       debug:
-        var: ingress_info.stdout_lines
-
-    # ============================================
-    # 8. Affichage de l'URL d'accès
-    # ============================================
-    - name: Afficher l'URL d'accès finale
-      debug:
-        msg: |
-          
-          ✅ ================================
-          ✅ DÉPLOIEMENT RÉUSSI !
-          ✅ ================================
-          
-          🌐 URL d'accès: http://notes.{{ minikube_ip.stdout }}.nip.io
-          
-          📋 Commandes utiles:
-          
-          # Voir tous les pods
-          kubectl get pods -n notesapp
-          
-          # Voir les logs de l'API
-          kubectl logs -n notesapp -l app=notes-api
-          
-          # Voir les logs du Frontend
-          kubectl logs -n notesapp -l app=notes-frontend
-          
-          # Accéder au Dashboard Minikube
-          minikube dashboard
-          
-          ✅ ================================
+        msg:
+          - "========================================="
+          - "✅ DÉPLOIEMENT RÉUSSI !"
+          - "========================================="
+          - ""
+          - "📦 PODS:"
+          - "{{ pods.stdout_lines }}"
+          - ""
+          - "🔌 SERVICES:"
+          - "{{ services.stdout_lines }}"
+          - ""
+          - "🌐 INGRESS:"
+          - "{{ ingress.stdout_lines }}"
+          - ""
+          - "========================================="
+          - "🌐 URL d'accès:"
+          - "http://notes.{{ server_ip.stdout }}.nip.io"
+          - "========================================="
