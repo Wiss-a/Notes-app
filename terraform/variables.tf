@@ -1,9 +1,10 @@
 variable "namespace" {
-  default = "notesapp"
+  description = "Namespace Kubernetes pour l'application"
+  type        = string
+  default     = "notesapp"
 }
-variable "region" {
-  default = "us-west-2"
-}
+
 variable "vm_ip" {
-  type = string
+  description = "Adresse IP de la VM pour nip.io"
+  type        = string
 }
