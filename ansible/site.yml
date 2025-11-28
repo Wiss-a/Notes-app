@@ -6,7 +6,7 @@
 
   tasks:
     # ============================================
-    # 1-6. Installation des outils (comme avant)
+    # 1. Vérifications préliminaires
     # ============================================
     - name: Vérifier que Docker est démarré
       service:
@@ -14,9 +14,26 @@
         state: started
       ignore_errors: true
 
-    # ... (toutes les étapes d'installation)
+    - name: Attendre que Docker soit prêt
+      wait_for:
+        path: /var/run/docker.sock
+        timeout: 60
 
-    - name: Démarrer Minikube
+    - name: Vérifier les outils installés
+      debug:
+        msg: "Tous les outils sont installés: Docker, kubectl, Minikube, Terraform"
+
+    # ============================================
+    # 2. Nettoyer Minikube existant
+    # ============================================
+    - name: Arrêter Minikube existant
+      command: minikube delete
+      ignore_errors: true
+
+    # ============================================
+    # 3. Démarrer Minikube avec driver=none
+    # ============================================
+    - name: Démarrer Minikube (driver=docker)
       command: minikube start --driver=docker --force
       environment:
         MINIKUBE_HOME: /root
@@ -32,6 +49,21 @@
       retries: 60
       delay: 10
 
+    - name: Vérifier que Minikube fonctionne
+      command: kubectl get nodes
+      register: nodes
+      until: nodes.rc == 0
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Afficher les nodes Kubernetes
+      debug:
+        msg: "{{ nodes.stdout_lines }}"
+
+    # ============================================
+    # 4. Configurer les addons
+    # ============================================
     - name: Activer addon Ingress
       command: minikube addons enable ingress
       register: ingress_result
@@ -46,97 +78,277 @@
       delay: 10
       until: metallb_result.rc == 0
 
+    # ============================================
+    # 5. Obtenir l'IP
+    # ============================================
     - name: Obtenir l'IP du serveur
       shell: hostname -I | awk '{print $1}'
       register: server_ip
       changed_when: false
 
+    - name: Afficher l'IP
+      debug:
+        msg: "IP du serveur: {{ server_ip.stdout }}"
+
     # ============================================
-    # 7. BUILD DES IMAGES DOCKER
+    # 6. Créer le namespace
     # ============================================
+    - name: Créer namespace notesapp
+      command: kubectl create namespace notesapp
+      register: ns_result
+      failed_when: 
+        - ns_result.rc != 0
+        - '"already exists" not in ns_result.stderr'
+
+   # ============================================
+    # 7. Build des images Docker
+    # ============================================
+    - name: Vérifier si l'image API existe
+      shell: docker images notes-api:1.0 -q
+      register: api_image_check
+      changed_when: false
+
     - name: Build image API
       shell: |
         cd /opt/notesapp/app/api
         docker build -t notes-api:1.0 .
+      when: api_image_check.stdout == ""
       register: api_build
-      changed_when: "'Successfully built' in api_build.stdout"
+
+    - name: Vérifier si l'image Frontend existe
+      shell: docker images notes-frontend:1.0 -q
+      register: frontend_image_check
+      changed_when: false
 
     - name: Build image Frontend
       shell: |
         cd /opt/notesapp/app/frontend
         docker build -t notes-frontend:1.0 .
+      when: frontend_image_check.stdout == ""
       register: frontend_build
-      changed_when: "'Successfully built' in frontend_build.stdout"
 
     - name: Charger les images dans Minikube
       shell: |
         minikube image load notes-api:1.0
         minikube image load notes-frontend:1.0
       register: image_load
+      changed_when: true
 
     - name: Afficher résultat des builds
       debug:
         msg:
-          - "✅ Images Docker construites et chargées dans Minikube"
+          - "Images Docker créées et chargées dans Minikube"
+          - "API: notes-api:1.0"
+          - "Frontend: notes-frontend:1.0"
+    # ============================================
+    # 8. Déployer la base de données
+    # ============================================
+    - name: Déployer PostgreSQL avec Secret
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: db-secret
+          type: Opaque
+          stringData:
+            POSTGRES_USER: notes
+            POSTGRES_PASSWORD: notespass
+            POSTGRES_DB: notesdb
+
+    - name: Déployer PostgreSQL StatefulSet
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: notes-db
+          spec:
+            serviceName: notes-db
+            replicas: 1
+            selector:
+              matchLabels:
+                app: notes-db
+            template:
+              metadata:
+                labels:
+                  app: notes-db
+              spec:
+                containers:
+                - name: postgres
+                  image: postgres:15-alpine
+                  ports:
+                  - containerPort: 5432
+                  env:
+                  - name: POSTGRES_USER
+                    valueFrom:
+                      secretKeyRef:
+                        name: db-secret
+                        key: POSTGRES_USER
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: db-secret
+                        key: POSTGRES_PASSWORD
+                  - name: POSTGRES_DB
+                    valueFrom:
+                      secretKeyRef:
+                        name: db-secret
+                        key: POSTGRES_DB
+                  volumeMounts:
+                  - name: postgres-storage
+                    mountPath: /var/lib/postgresql/data
+            volumeClaimTemplates:
+            - metadata:
+                name: postgres-storage
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: 2Gi
+
+    - name: Déployer PostgreSQL Service
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: notes-db
+          spec:
+            selector:
+              app: notes-db
+            ports:
+            - port: 5432
+              targetPort: 5432
 
     # ============================================
-    # 8. DEPLOIEMENT AVEC TERRAFORM
+    # 9. Déployer l'API
     # ============================================
-    - name: Créer le fichier terraform.tfvars
-      copy:
-        content: |
-          vm_ip = "{{ server_ip.stdout }}"
-          namespace = "notesapp"
-        dest: /opt/notesapp/terraform/terraform.tfvars
-        mode: '0644'
+    - name: Déployer API Deployment
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: notes-api
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: notes-api
+            template:
+              metadata:
+                labels:
+                  app: notes-api
+              spec:
+                containers:
+                - name: api
+                  image: notes-api:1.0
+                  imagePullPolicy: Never
+                  ports:
+                  - containerPort: 5000
+                  env:
+                  - name: DATABASE_URL
+                    value: "postgresql://notes:notespass@notes-db:5432/notesdb"
 
-    - name: Initialiser Terraform
-      shell: terraform init
-      args:
-        chdir: /opt/notesapp/terraform
-      register: tf_init
-
-    - name: Afficher résultat init Terraform
-      debug:
-        msg: "{{ tf_init.stdout_lines }}"
-
-    - name: Planifier le déploiement Terraform
-      shell: terraform plan -out=tfplan
-      args:
-        chdir: /opt/notesapp/terraform
-      register: tf_plan
-      environment:
-        KUBE_CONFIG_PATH: /root/.kube/config
-
-    - name: Afficher le plan Terraform
-      debug:
-        msg: "{{ tf_plan.stdout_lines }}"
-
-    - name: Appliquer le déploiement Terraform
-      shell: terraform apply -auto-approve tfplan
-      args:
-        chdir: /opt/notesapp/terraform
-      register: tf_apply
-      environment:
-        KUBE_CONFIG_PATH: /root/.kube/config
-
-    - name: Afficher résultat Terraform
-      debug:
-        msg: "{{ tf_apply.stdout_lines }}"
-
-    - name: Récupérer les outputs Terraform
-      shell: terraform output -json
-      args:
-        chdir: /opt/notesapp/terraform
-      register: tf_outputs
-      changed_when: false
-
-    - name: Afficher les outputs Terraform
-      debug:
-        msg: "{{ tf_outputs.stdout }}"
+    - name: Déployer API Service
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: notes-api
+          spec:
+            selector:
+              app: notes-api
+            ports:
+            - port: 5000
+              targetPort: 5000
 
     # ============================================
-    # 9. VERIFICATIONS FINALES
+    # 10. Déployer le Frontend
+    # ============================================
+    - name: Déployer Frontend Deployment
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: notes-frontend
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: notes-frontend
+            template:
+              metadata:
+                labels:
+                  app: notes-frontend
+              spec:
+                containers:
+                - name: frontend
+                  image: notes-frontend:1.0
+                  imagePullPolicy: Never
+                  ports:
+                  - containerPort: 80
+
+    - name: Déployer Frontend Service
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: notes-frontend
+          spec:
+            selector:
+              app: notes-frontend
+            ports:
+            - port: 80
+              targetPort: 80
+
+    # ============================================
+    # 11. Déployer l'Ingress
+    # ============================================
+    - name: Déployer Ingress
+      k8s:
+        state: present
+        namespace: notesapp
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: notesapp-ingress
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /
+          spec:
+            rules:
+            - host: "notes.{{ server_ip.stdout }}.nip.io"
+              http:
+                paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: notes-frontend
+                      port:
+                        number: 80
+
+    # ============================================
+    # 12. Attendre que tout soit prêt
     # ============================================
     - name: Attendre que tous les pods soient prêts
       command: kubectl wait --for=condition=ready pod --all -n notesapp --timeout=300s
@@ -145,6 +357,9 @@
       delay: 30
       until: pods_ready.rc == 0
 
+    # ============================================
+    # 13. Afficher les résultats
+    # ============================================
     - name: Obtenir tous les pods
       command: kubectl get pods -n notesapp -o wide
       register: pods
