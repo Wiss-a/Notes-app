@@ -70,32 +70,32 @@
     # ============================================
     # 6. Start Minikube cluster
     # ============================================
-    - name: Delete any existing Minikube cluster
-      command: minikube delete
-      ignore_errors: true
+    # - name: Delete any existing Minikube cluster
+    #   command: minikube delete
+    #   ignore_errors: true
 
-    - name: Start Minikube (driver=docker)
-      command: minikube start --driver=docker --force
-      environment:
-        MINIKUBE_HOME: /root
-      async: 600
-      poll: 0
-      register: minikube_start_job
+    # - name: Start Minikube (driver=docker)
+    #   command: minikube start --driver=docker --force
+    #   environment:
+    #     MINIKUBE_HOME: /root
+    #   async: 600
+    #   poll: 0
+    #   register: minikube_start_job
 
-    - name: Wait for Minikube start
-      async_status:
-        jid: "{{ minikube_start_job.ansible_job_id }}"
-      register: job_result
-      until: job_result.finished
-      retries: 60
-      delay: 10
+    # - name: Wait for Minikube start
+    #   async_status:
+    #     jid: "{{ minikube_start_job.ansible_job_id }}"
+    #   register: job_result
+    #   until: job_result.finished
+    #   retries: 60
+    #   delay: 10
 
-    - name: Check Minikube nodes
-      command: kubectl get nodes
-      register: nodes
-      until: nodes.rc == 0
-      retries: 20
-      delay: 10
+    # - name: Check Minikube nodes
+    #   command: kubectl get nodes
+    #   register: nodes
+    #   until: nodes.rc == 0
+    #   retries: 20
+    #   delay: 10
 
     - name: Display nodes
       debug:
