@@ -10,16 +10,10 @@ resource "kubernetes_ingress" "notes_ingress" {
 
       http {
         path {
-          path     = "/"
-          path_type = "Prefix"
-
+          path = "/"
           backend {
-            service {
-              name = "notes-frontend"
-              port {
-                number = 80
-              }
-            }
+            service_name = "notes-frontend"
+            service_port = 80
           }
         }
       }
