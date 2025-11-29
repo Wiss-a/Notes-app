@@ -33,19 +33,17 @@ with app.app_context():
     except Exception as e:
         print(f"Error creating tables: {e}")
 
-# Health check
-@app.route('/api/health', methods=['GET'])
+
+@app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'healthy'}), 200
 
-# Get all notes
-@app.route('/api/notes', methods=['GET'])
+@app.route('/notes', methods=['GET'])
 def get_notes():
     notes = Note.query.all()
     return jsonify([note.to_dict() for note in notes])
 
-# Add a new note
-@app.route('/api/add', methods=['POST'])
+@app.route('/add', methods=['POST'])
 def add_note():
     data = request.get_json()
     content = data.get('content')
@@ -59,8 +57,7 @@ def add_note():
     
     return jsonify(note.to_dict()), 201
 
-# Delete a note by ID
-@app.route('/api/delete/<int:id>', methods=['DELETE'])
+@app.route('/delete/<int:id>', methods=['DELETE'])
 def delete_note(id):
     note = Note.query.get_or_404(id)
     db.session.delete(note)
