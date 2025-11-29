@@ -5,63 +5,267 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NotesApp</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        h1 { color: #333; }
-        .note { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .note h3 { margin-top: 0; }
-        button { padding: 8px 15px; margin: 5px; cursor: pointer; }
-        input, textarea { width: 100%; padding: 8px; margin: 5px 0; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        
+        .add-note {
+            background: #f7f7f7;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        
+        .add-note h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .notes-list h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+        
+        .note {
+            background: white;
+            border: 2px solid #e0e0e0;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+            transition: all 0.3s;
+            position: relative;
+        }
+        
+        .note:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .note-content {
+            color: #333;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 15px;
+            word-wrap: break-word;
+        }
+        
+        .note-id {
+            color: #999;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+        
+        .delete-btn {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 8px 20px;
+            font-size: 14px;
+        }
+        
+        .delete-btn:hover {
+            box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
+        }
+        
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+            font-size: 18px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+        
+        .error {
+            background: #fee;
+            border: 2px solid #fcc;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
     </style>
 </head>
 <body>
-    <h1>📝 NotesApp</h1>
-    
-    <div>
-        <h2>Ajouter une note</h2>
-        <input type="text" id="title" placeholder="Titre">
-        <textarea id="content" placeholder="Contenu" rows="4"></textarea>
-        <button onclick="addNote()">Ajouter</button>
+    <div class="container">
+        <h1>📝 NotesApp</h1>
+        
+        <div class="add-note">
+            <h2>Ajouter une note</h2>
+            <textarea id="content" placeholder="Écrivez votre note ici..."></textarea>
+            <button onclick="addNote()">➕ Ajouter</button>
+        </div>
+        
+        <div class="notes-list">
+            <h2>Mes Notes</h2>
+            <div id="notes"></div>
+        </div>
     </div>
-    
-    <h2>Mes Notes</h2>
-    <div id="notes"></div>
 
     <script>
         const API_URL = '/api';
 
         async function loadNotes() {
-            const response = await fetch(`${API_URL}/notes`);
-            const notes = await response.json();
             const container = document.getElementById('notes');
-            container.innerHTML = notes.map(note => `
-                <div class="note">
-                    <h3>${note.title}</h3>
-                    <p>${note.content}</p>
-                    <button onclick="deleteNote(${note.id})">Supprimer</button>
-                </div>
-            `).join('');
+            container.innerHTML = '<div class="loading">Chargement des notes...</div>';
+            
+            try {
+                const response = await fetch(`${API_URL}/notes`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const notes = await response.json();
+                
+                if (notes.length === 0) {
+                    container.innerHTML = '<div class="empty-state">Aucune note pour le moment. Ajoutez-en une !</div>';
+                    return;
+                }
+                
+                container.innerHTML = notes.map(note => `
+                    <div class="note">
+                        <div class="note-id">Note #${note.id}</div>
+                        <div class="note-content">${escapeHtml(note.content)}</div>
+                        <button class="delete-btn" onclick="deleteNote(${note.id})">🗑️ Supprimer</button>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Erreur:', error);
+                container.innerHTML = `
+                    <div class="error">
+                        ❌ Erreur de connexion à l'API: ${error.message}
+                        <br><br>
+                        Vérifiez que l'API fonctionne correctement.
+                    </div>
+                `;
+            }
         }
 
         async function addNote() {
-            const title = document.getElementById('title').value;
-            const content = document.getElementById('content').value;
+            const content = document.getElementById('content').value.trim();
             
-            await fetch(`${API_URL}/add`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, content })
-            });
+            if (!content) {
+                alert('Veuillez entrer du contenu pour votre note');
+                return;
+            }
             
-            document.getElementById('title').value = '';
-            document.getElementById('content').value = '';
-            loadNotes();
+            try {
+                const response = await fetch(`${API_URL}/add`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                document.getElementById('content').value = '';
+                await loadNotes();
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert(`Erreur lors de l'ajout: ${error.message}`);
+            }
         }
 
         async function deleteNote(id) {
-            await fetch(`${API_URL}/delete/${id}`, { method: 'DELETE' });
-            loadNotes();
+            if (!confirm('Voulez-vous vraiment supprimer cette note ?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/delete/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                await loadNotes();
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert(`Erreur lors de la suppression: ${error.message}`);
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
+        // Charger les notes au démarrage
         loadNotes();
     </script>
 </body>

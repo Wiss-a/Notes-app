@@ -1,28 +1,61 @@
 from flask import Flask, request, jsonify
-from models import db, Note
+from flask_sqlalchemy import SQLAlchemy
+import os
 
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///local.db"
-db.init_app(app)
 
-@app.route("/notes", methods=["GET"])
+# Configuration PostgreSQL
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://notes:notespass@notes-db:5432/notesdb')
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+# Modèle Note
+class Note(db.Model):
+    __tablename__ = 'notes'
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'content': self.content
+        }
+
+# Créer les tables au démarrage
+with app.app_context():
+    db.create_all()
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'healthy'}), 200
+
+@app.route('/notes', methods=['GET'])
 def get_notes():
-    return jsonify([n.to_dict() for n in Note.query.all()])
+    notes = Note.query.all()
+    return jsonify([note.to_dict() for note in notes])
 
-@app.route("/add", methods=["POST"])
+@app.route('/add', methods=['POST'])
 def add_note():
-    content = request.json.get("content")
-    n = Note(content=content)
-    db.session.add(n)
+    data = request.get_json()
+    content = data.get('content')
+    
+    if not content:
+        return jsonify({'error': 'Content is required'}), 400
+    
+    note = Note(content=content)
+    db.session.add(note)
     db.session.commit()
-    return n.to_dict(), 201
+    
+    return jsonify(note.to_dict()), 201
 
-@app.route("/delete/<int:id>", methods=["DELETE"])
-def delete(id):
-    n = Note.query.get_or_404(id)
-    db.session.delete(n)
+@app.route('/delete/<int:id>', methods=['DELETE'])
+def delete_note(id):
+    note = Note.query.get_or_404(id)
+    db.session.delete(note)
     db.session.commit()
-    return {"deleted": True}
+    return jsonify({'deleted': True, 'id': id}), 200
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
