@@ -24,7 +24,7 @@ resource "kubernetes_deployment" "api" {
         container {
           name  = "notes-api"
           image = "notes-api:latest"
-          image_pull_policy = "Never"
+          image_pull_policy = "IfNotPresent"
 
           port {
             container_port = 5000

@@ -24,7 +24,7 @@ resource "kubernetes_deployment" "frontend" {
         container {
           name  = "notes-frontend"
           image = "notes-frontend:latest"
-          image_pull_policy = "Never"
+          image_pull_policy = "IfNotPresent"
 
 
           port {
