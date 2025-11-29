@@ -1,10 +1,14 @@
-resource "kubernetes_secret" "postgres_secret" {
+resource "kubernetes_secret" "notes_db" {
   metadata {
-    name      = "postgres-secret"
+    name      = "notes-db-secret"
     namespace = kubernetes_namespace.notesapp.metadata[0].name
   }
 
-  data = {
-    POSTGRES_PASSWORD = base64encode("notepass")
+ data = {
+    POSTGRES_USER     = "notes"
+    POSTGRES_PASSWORD = "wissal"
+    POSTGRES_DB       = "notesdb"
   }
+
+  type = "Opaque"
 }
