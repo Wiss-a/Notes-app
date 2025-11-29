@@ -5,7 +5,7 @@ import os
 app = Flask(__name__)
 
 # Configuration PostgreSQL
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://notes:wissal@notes-db:5432/notesdb')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://notes:notespass@notes-db:5432/notesdb')
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

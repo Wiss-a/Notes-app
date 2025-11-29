@@ -32,7 +32,7 @@ resource "kubernetes_deployment" "api" {
 
           env {
             name = "DATABASE_URL"
-            value = "postgresql://notes:notepass@notes-db:5432/notesdb"
+            value = "postgresql://notes:notespass@notes-db:5432/notesdb"
           }
         }
       }

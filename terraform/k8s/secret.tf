@@ -6,7 +6,7 @@ resource "kubernetes_secret" "notes_db" {
 
  data = {
     POSTGRES_USER     = "notes"
-    POSTGRES_PASSWORD = "wissal"
+    POSTGRES_PASSWORD = "notespass"
     POSTGRES_DB       = "notesdb"
   }
 

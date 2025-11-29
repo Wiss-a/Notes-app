@@ -7,5 +7,6 @@ resource "kubernetes_config_map" "app_config" {
   data = {
     POSTGRES_DB   = "notesdb"
     POSTGRES_USER = "notes"
+    POSTGRES_PASSWORD = "notespass"
   }
 }
