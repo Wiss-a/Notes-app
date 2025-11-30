@@ -6,6 +6,7 @@ resource "kubernetes_ingress_v1" "notes_ingress" {
     annotations = {
       "kubernetes.io/ingress.class"                = "nginx"
       "nginx.ingress.kubernetes.io/rewrite-target" = "/$2"
+      "nginx.ingress.kubernetes.io/use-regex"      = "true"
     }
   }
 
@@ -14,9 +15,7 @@ resource "kubernetes_ingress_v1" "notes_ingress" {
       host = "notes.${var.minikube_ip}.nip.io"
 
       http {
-        # ---------------------------
-        # FRONTEND ROUTE (/)
-        # ---------------------------
+        # FRONTEND
         path {
           path      = "/"
           path_type = "Prefix"
@@ -31,12 +30,10 @@ resource "kubernetes_ingress_v1" "notes_ingress" {
           }
         }
 
-        # ---------------------------
-        # BACKEND ROUTE (/api/*)
-        # ---------------------------
+        # BACKEND (regex)
         path {
           path      = "/api(/|$)(.*)"
-          path_type = "Prefix"
+          path_type = "ImplementationSpecific"
 
           backend {
             service {
