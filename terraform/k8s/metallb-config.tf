@@ -1,6 +1,6 @@
 resource "kubernetes_config_map" "metallb_config" {
   metadata {
-    name      = "metallb-config"
+    name      = "config"
     namespace = "metallb-system" 
   }
 
