@@ -5,7 +5,6 @@ resource "kubernetes_ingress_v1" "notes_ingress" {
 
     annotations = {
       "kubernetes.io/ingress.class"                = "nginx"
-      "nginx.ingress.kubernetes.io/rewrite-target" = "/$2"
       "nginx.ingress.kubernetes.io/use-regex"      = "true"
     }
   }
