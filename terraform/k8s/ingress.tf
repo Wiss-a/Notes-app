@@ -4,8 +4,7 @@ resource "kubernetes_ingress_v1" "notes_ingress" {
     namespace = kubernetes_namespace.notesapp.metadata[0].name
 
     annotations = {
-      "kubernetes.io/ingress.class"                = "nginx"
-      "nginx.ingress.kubernetes.io/use-regex"      = "true"
+      "kubernetes.io/ingress.class" = "nginx"
     }
   }
 
@@ -14,7 +13,22 @@ resource "kubernetes_ingress_v1" "notes_ingress" {
       host = "notes.${var.minikube_ip}.nip.io"
 
       http {
-        # FRONTEND
+        # BACKEND - DOIT ÊTRE EN PREMIER (plus spécifique)
+        path {
+          path      = "/api"
+          path_type = "Prefix"
+
+          backend {
+            service {
+              name = "notes-api"
+              port {
+                number = 5000
+              }
+            }
+          }
+        }
+
+        # FRONTEND - EN DERNIER (catch-all)
         path {
           path      = "/"
           path_type = "Prefix"
@@ -24,21 +38,6 @@ resource "kubernetes_ingress_v1" "notes_ingress" {
               name = "notes-frontend"
               port {
                 number = 80
-              }
-            }
-          }
-        }
-
-        # BACKEND (regex)
-        path {
-          path      = "/api(/|$)(.*)"
-          path_type = "ImplementationSpecific"
-
-          backend {
-            service {
-              name = "notes-api"
-              port {
-                number = 5000
               }
             }
           }

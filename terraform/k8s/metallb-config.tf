@@ -1,7 +1,7 @@
 resource "kubernetes_config_map" "metallb_config" {
   metadata {
-    name      = "notes-metallb"
-    namespace = kubernetes_namespace.notesapp.metadata[0].name
+    name      = "metallb-config"
+    namespace = "metallb-system" 
   }
 
   data = {
